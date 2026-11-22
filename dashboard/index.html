@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Token Radar — pre-token protocols ranked by implied value</title>
+<meta name="description" content="Which pre-token protocol is worth farming next, and what to do about it. Ranked by implied launch value, derived from the snapshot's own figures.">
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+<header class="top">
+  <div class="wrap">
+    <div class="brand">
+      <span class="mark" aria-hidden="true">◉</span>
+      <div>
+        <h1>Token Radar</h1>
+        <p class="tag">Which pre-token protocol is worth farming next — and what to do about it.</p>
+      </div>
+    </div>
+    <dl class="stats" id="stats"></dl>
+  </div>
+</header>
+<nav class="tabs wrap" aria-label="Views">
+  <button class="tab active" data-view="board" type="button">Board</button>
+  <button class="tab" data-view="live" type="button">Live tokens</button>
+  <button class="tab" data-view="model" type="button">The model</button>
+</nav>
+<main class="wrap">
+  <section id="view-board" class="view active" aria-label="Ranked board">
+    <div class="controls" role="search">
+      <label class="field grow">Search
+        <input id="q" type="search" placeholder="Protocol, chain or category…" autocomplete="off">
+      </label>
+      <label class="field">Category
+        <select id="f-cat"><option value="">All categories</option></select>
+      </label>
+      <label class="field">Chain
+        <select id="f-chain"><option value="">All chains</option></select>
+      </label>
+      <label class="field">Min TVL
+        <select id="f-tvl">
+          <option value="0">Any</option>
+          <option value="10000000">$10M+</option>
+          <option value="50000000">$50M+ (watchlist floor)</option>
+          <option value="100000000">$100M+</option>
+          <option value="500000000">$500M+</option>
+        </select>
+      </label>
+      <label class="field">Sort by
+        <select id="f-sort">
+          <option value="rank">Implied value (rank)</option>
+          <option value="tvl">TVL</option>
+          <option value="growth">7-day growth</option>
+          <option value="age">Age (no token the longest)</option>
+          <option value="name">Name A–Z</option>
+        </select>
+      </label>
+      <label class="check"><input id="f-watch" type="checkbox"> Watchlist only</label>
+    </div>
+    <p class="count" id="count" aria-live="polite"></p>
+    <div class="table-wrap">
+      <table id="board">
+        <thead>
+          <tr>
+            <th class="num">#</th><th>Protocol</th><th>Category</th><th>Chains</th>
+            <th class="num">TVL</th><th class="num">7d</th><th class="num">Age</th><th class="num">Implied value</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+    <p class="note">Implied value is this radar's own claim from the snapshot's figures — never a promise a token launches, or when. “Records no token” means the snapshot's record carries none; a protocol may still have one its record does not carry.</p>
+  </section>
+  <section id="view-live" class="view" aria-label="Live tokens">
+    <p class="intro">Protocols whose token already trades. The market's own values — and the source of every category multiple the model uses. A high multiple here is what lifts a pre-token peer in the same category.</p>
+    <div class="table-wrap">
+      <table id="live">
+        <thead>
+          <tr><th>Protocol</th><th>Category</th><th>Chains</th><th class="num">TVL</th><th class="num">Market cap</th><th class="num">Mcap / TVL</th></tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </section>
+  <section id="view-model" class="view" aria-label="The model">
+    <div class="model-grid">
+      <div>
+        <h2>How the value is worked out</h2>
+        <p>Every implied value comes from the snapshot's own figures — TVL, seven-day growth, and how long the protocol has run with no token — never from a hand-kept list of names. The same function scores every row.</p>
+        <p class="formula">implied = TVL × category multiple × growth × maturity</p>
+        <ul class="model-points">
+          <li><strong>Category multiple.</strong> For each category, the median market-cap-to-TVL ratio of that category's protocols whose token already trades, computed from this snapshot. Categories with fewer than 3 trading comparables fall back to the global median. Multiples are clamped to 0.02–2.00.</li>
+          <li><strong>Growth.</strong> The seven-day TVL change, clamped to −60%…+120%, weighted at 0.5: a protocol growing 40% in a week scores 1.20×.</li>
+          <li><strong>Maturity.</strong> 0.60 for a brand-new protocol, rising to 1.00 after two years running with no token. A protocol with no listing date is scored as one year old.</li>
+        </ul>
+        <h3>Try it: the sandbox</h3>
+        <p>Move the sliders and the board re-ranks live, in this page, with the same formula. Nothing is saved — it is a way to see what the model is sensitive to.</p>
+        <div class="sandbox" id="sandbox"></div>
+        <p class="sandbox-note" id="sandbox-note"></p>
+      </div>
+      <div>
+        <h2>Category multiples</h2>
+        <p>Derived from the snapshot's trading protocols. “n” is how many trading protocols the median rests on; a fallback multiple is the global median.</p>
+        <div class="table-wrap small">
+          <table id="multiples">
+            <thead><tr><th>Category</th><th class="num">n</th><th class="num">Multiple</th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </section>
+  <section id="detail" class="detail" aria-label="Protocol detail" hidden></section>
+</main>
+<footer class="wrap foot">
+  <p>Data: a sealed snapshot of DefiLlama's public protocol records, fetched once. This page runs with no network: every figure on it was computed from that snapshot by the program that wrote this dashboard.</p>
+</footer>
+<script src="../data.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
