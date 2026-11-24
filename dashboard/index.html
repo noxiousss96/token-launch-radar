@@ -89,8 +89,8 @@
         <p>Every implied value comes from the snapshot's own figures — TVL, seven-day growth, and how long the protocol has run with no token — never from a hand-kept list of names. The same function scores every row.</p>
         <p class="formula">implied = TVL × category multiple × growth × maturity</p>
         <ul class="model-points">
-          <li><strong>Category multiple.</strong> For each category, the median market-cap-to-TVL ratio of that category's protocols whose token already trades, computed from this snapshot. Categories with fewer than 3 trading comparables fall back to the global median. Multiples are clamped to 0.02–2.00.</li>
-          <li><strong>Growth.</strong> The seven-day TVL change, clamped to −60%…+120%, weighted at 0.5: a protocol growing 40% in a week scores 1.20×.</li>
+          <li><strong>Category multiple.</strong> For each category, the median market-cap-to-TVL ratio of that category's protocols whose token already trades, computed from this snapshot — blended with the global median by shrinkage, weighted by how many trading comparables the category has: (n × category median + 3 × global) / (n + 3). A category with one comparable leans mostly on the global median; one with many stands on its own. Only a category with no trading comparables at all falls back to the global median. Multiples are clamped to 0.02–2.00.</li>
+          <li><strong>Growth.</strong> The seven-day TVL change, clamped to −60%…+120%, weighted at 0.5: a protocol growing 40% in a week scores 1.20×. A protocol that reports no seven-day change scores the snapshot's median change instead of zero.</li>
           <li><strong>Maturity.</strong> 0.60 for a brand-new protocol, rising to 1.00 after two years running with no token. A protocol with no listing date is scored as one year old.</li>
         </ul>
         <h3>Try it: the sandbox</h3>
@@ -100,7 +100,7 @@
       </div>
       <div>
         <h2>Category multiples</h2>
-        <p>Derived from the snapshot's trading protocols. “n” is how many trading protocols the median rests on; a fallback multiple is the global median.</p>
+        <p>Derived from the snapshot's trading protocols. “n” is how many trading protocols the median rests on; each multiple blends its category's median with the global median by shrinkage, so a small n leans on the global figure. A fallback multiple — a category with no trading protocols at all — is the global median.</p>
         <div class="table-wrap small">
           <table id="multiples">
             <thead><tr><th>Category</th><th class="num">n</th><th class="num">Multiple</th></tr></thead>

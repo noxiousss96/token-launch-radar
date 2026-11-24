@@ -9,11 +9,13 @@
 // Implied value follows only from the snapshot's own figures. The key step is the multiple: for
 // each category, the median market-cap-to-TVL ratio of that category's protocols whose token
 // already trades, computed from this snapshot. A bridge and a lending market do not deserve the
-// same multiple, and the snapshot says so itself. Categories with too few trading comparables
-// fall back to the global median. Then:
+// same multiple, and the snapshot says so itself. A category's multiple blends its own median
+// with the global median, weighted by how many trading comparables it has (shrinkage, k = 3):
+// a category with one comparable leans mostly on the global median, one with many stands on its
+// own. Only a category with no trading comparables at all falls back to the global median. Then:
 //
 //   base       = tvl_usd x categoryMultiple
-//   growth     = clamp(change_7d, -60, 120) per cent
+//   growth     = clamp(change_7d, -60, 120) per cent (change_7d unknown: the snapshot's median)
 //   growthMult = 1 + (growth / 100) x GROWTH_WEIGHT
 //   maturity   = 0.6 + min(age_days, 730) / 730 x 0.4   (age_days unknown: 365)
 //   implied    = max(1, round(base x growthMult x maturity))
@@ -55,7 +57,7 @@ export interface ModelConstants {
   unknown_age_days: number;
   multiple_min: number;
   multiple_max: number;
-  min_category_n: number;
+  multiple_shrink_k: number;
 }
 
 export const MODEL: ModelConstants = {
@@ -68,11 +70,11 @@ export const MODEL: ModelConstants = {
   unknown_age_days: 365,
   multiple_min: 0.02,
   multiple_max: 2.0,
-  min_category_n: 3,
+  multiple_shrink_k: 3,
 };
 
 /** The model's version label: the dashboard names it. */
-export const MODEL_VERSION = 'radar-2';
+export const MODEL_VERSION = 'radar-3';
 
 /** How many live-token protocols the Live token view carries, by market cap. */
 export const LIVE_ROWS = 24;
@@ -163,6 +165,7 @@ export interface RadarData {
   early_size: number;
   live_size: number;
   global_multiple: number;
+  median_change_7d: number;
   multiples: CategoryMultiple[];
   watchlist: string[];
   rows: RadarRow[];
@@ -200,11 +203,22 @@ export function ageDays(asOf: string, listedAt: string | null): number | null {
   return Math.max(0, Math.floor((a - b) / DAY_MS));
 }
 
+/** The snapshot's median seven-day TVL change across its protocols; 0 when none report one. */
+export function medianChange7d(snapshot: Snapshot): number {
+  const changes = snapshot.protocols
+    .map((p) => p.change_7d)
+    .filter((c): c is number => typeof c === 'number' && Number.isFinite(c))
+    .sort((a, b) => a - b);
+  return median(changes) ?? 0;
+}
+
 /**
  * The trading multiples, derived from the snapshot's own tokenised protocols: for each category,
- * the median market-cap-to-TVL ratio of the protocols in it whose token already trades, clamped
- * to the model's band. Categories with fewer than `min_category_n` trading protocols fall back
- * to the global median, and the table says which.
+ * the median market-cap-to-TVL ratio of the protocols in it whose token already trades, blended
+ * with the global median by shrinkage — multiple = (n x catMedian + k x global) / (n + k) with
+ * k = `multiple_shrink_k` — then clamped to the model's band. A category with one comparable
+ * leans mostly on the global median; one with many stands on its own. Only a category with no
+ * trading comparables at all falls back to the global median, and the table says which.
  */
 export function deriveMultiples(snapshot: Snapshot, model: ModelConstants): { byCategory: Map<string, number>; table: CategoryMultiple[]; global: number } {
   const clamp = (x: number): number => Math.min(model.multiple_max, Math.max(model.multiple_min, x));
@@ -227,20 +241,20 @@ export function deriveMultiples(snapshot: Snapshot, model: ModelConstants): { by
   for (const [category, list] of [...ratios.entries()].sort((a, b) => a[0].localeCompare(b[0]))) {
     list.sort((a, b) => a - b);
     const n = list.length;
-    const multiple = n >= model.min_category_n ? clamp(median(list)!) : global;
+    const multiple = clamp((n * median(list)! + model.multiple_shrink_k * global) / (n + model.multiple_shrink_k));
     byCategory.set(category, multiple);
     table.push({ category, n, multiple: round4(multiple) });
   }
   return { byCategory, table, global };
 }
 
-/** The multiple one protocol gets: its category's, or the global fallback. */
-export function multipleFor(p: SnapshotProtocol, multiples: { byCategory: Map<string, number>; global: number }, model: ModelConstants): { multiple: number; n: number; fallback: boolean } {
+/** The multiple one protocol gets: its category's shrinkage-blended multiple, or the global fallback when its category has no trading comparables at all. */
+export function multipleFor(p: SnapshotProtocol, multiples: { byCategory: Map<string, number>; table: CategoryMultiple[]; global: number }, model: ModelConstants): { multiple: number; n: number; fallback: boolean } {
   const key = p.category ?? '(uncategorised)';
   const multiple = multiples.byCategory.get(key);
   if (multiple === undefined) return { multiple: multiples.global, n: 0, fallback: true };
-  // A category with too few trading protocols was already folded into the global median.
-  return { multiple, n: -1, fallback: false };
+  const n = multiples.table.find((t) => t.category === key)?.n ?? 0;
+  return { multiple, n, fallback: false };
 }
 
 /** The three multipliers and the implied value one protocol gets under `model`. */
@@ -248,10 +262,13 @@ export function impliedValue(
   protocol: SnapshotProtocol,
   asOf: string,
   model: ModelConstants,
-  multiples: { byCategory: Map<string, number>; global: number },
+  multiples: { byCategory: Map<string, number>; table: CategoryMultiple[]; global: number },
+  medianChange = 0,
 ): { implied: number; multiple: number; growthPct: number; growthMult: number; maturityMult: number; age: number | null } {
   const age = ageDays(asOf, protocol.listed_at);
-  const rawGrowth = finite(protocol.change_7d, 0);
+  // Unknown growth scores the snapshot's median change, not zero: a missing figure is no
+  // reason to rank a protocol above the typical one.
+  const rawGrowth = finite(protocol.change_7d, medianChange);
   const growthPct = Math.min(model.growth_cap, Math.max(model.growth_floor, rawGrowth));
   const growthMult = 1 + (growthPct / 100) * model.growth_weight;
   const ageForModel = age ?? model.unknown_age_days;
@@ -286,6 +303,7 @@ function bySlug(protocols: SnapshotProtocol[]): Map<string, SnapshotProtocol> {
 /** The protocols the board ranks, strongest first, with ranks 1..n. */
 export function buildBoard(snapshot: Snapshot, model: ModelConstants = MODEL): BoardRow[] {
   const multiples = deriveMultiples(snapshot, model);
+  const medianChange = medianChange7d(snapshot);
   const index = bySlug(snapshot.protocols);
   const chosen = new Map<string, SnapshotProtocol>();
   // The watchlist is the floor: every slug, even one the snapshot no longer carries.
@@ -301,11 +319,11 @@ export function buildBoard(snapshot: Snapshot, model: ModelConstants = MODEL): B
   for (const p of early) chosen.set(p.slug, p);
 
   const scored = [...chosen.values()].map((p) => {
-    const { implied, multiple, growthPct, growthMult, maturityMult, age } = impliedValue(p, snapshot.as_of, model, multiples);
+    const { implied, multiple, growthPct, growthMult, maturityMult, age } = impliedValue(p, snapshot.as_of, model, multiples, medianChange);
     const key = p.category ?? '(uncategorised)';
     const tableEntry = multiples.table.find((t) => t.category === key);
     const categoryN = tableEntry?.n ?? 0;
-    const fallback = tableEntry === undefined || categoryN < model.min_category_n;
+    const fallback = tableEntry === undefined || categoryN === 0;
     return { p, implied, multiple, growthPct, growthMult, maturityMult, age, categoryN, fallback };
   });
   scored.sort((a, b) => b.implied - a.implied || (a.p.slug < b.p.slug ? -1 : a.p.slug > b.p.slug ? 1 : 0));
@@ -403,6 +421,28 @@ function weeklyFor(p: SnapshotProtocol): string {
   return `Make one qualifying action each week, such as a deposit, a swap, a vote or a claim.`;
 }
 
+/** The position a farmer holds in a protocol, in the category's own words, for the farm log. */
+function positionFor(p: SnapshotProtocol): string {
+  const c = (p.category ?? '').toLowerCase();
+  if (c.includes('lend') || c.includes('cdp') || c.includes('collateral')) return 'supply position';
+  if (c.includes('dex') || c.includes('yield aggregator')) return 'liquidity position';
+  if (c.includes('yield') || c.includes('leveraged farm')) return 'vault shares';
+  if (c.includes('bridge')) return 'bridged funds';
+  if (c.includes('liquid staking') || c.includes('restak')) return 'stake';
+  if (c.includes('perpetual') || c.includes('derivative') || c.includes('options')) return 'margin position';
+  if (c.includes('prediction')) return 'market positions';
+  if (c.includes('curator') || c.includes('allocator') || c.includes('vault')) return 'vault shares';
+  if (c.includes('stable')) return 'stable asset balance';
+  if (c.includes('rwa') || c.includes('real world')) return 'yield-bearing asset';
+  if (c.includes('insurance')) return 'cover policy';
+  if (c.includes('launchpad')) return 'staked allocation';
+  if (c.includes('gaming') || c.includes('gamefi')) return 'in-game assets';
+  if (c.includes('nft')) return 'NFT position';
+  if (c.includes('privacy')) return 'shielded deposit';
+  if (c.includes('ai') || c.includes('compute')) return 'compute credit';
+  return 'position';
+}
+
 /**
  * A protocol's farm plan: six steps, each an action with a cost and a time. The plan is derived
  * from the protocol's own record (category, chains, TVL, age), never from a hand-written list.
@@ -415,7 +455,7 @@ export function farmSteps(p: SnapshotProtocol, age: number | null): FarmStep[] {
   const gas = capital >= 150 ? 8 : 4;
   return [
     {
-      text: `Use a fresh wallet that holds only the funds you plan to farm, and keep its seed phrase offline.`,
+      text: `Use a fresh wallet on ${chain} that holds only the funds you plan to farm, and keep its seed phrase offline.`,
       cost: 'under $3 of gas for the first transaction',
       time: '5 minutes',
     },
@@ -435,12 +475,12 @@ export function farmSteps(p: SnapshotProtocol, age: number | null): FarmStep[] {
       time: `${hold} days`,
     },
     {
-      text: `Before you withdraw, open the protocol's own points or rewards page and claim only from the link it publishes.`,
+      text: `Before you withdraw, open ${p.name}'s own points or rewards page and claim only from the link it publishes.`,
       cost: 'no fee to check, and never pay to claim',
       time: '10 minutes',
     },
     {
-      text: `Write the wallet, the dates and every transaction in a farm log so you can repeat the position or unwind it.`,
+      text: `Write the wallet, the dates and every transaction for the ${positionFor(p)} in a farm log so you can repeat it or unwind it.`,
       cost: 'nothing but the log',
       time: '5 minutes',
     },
@@ -504,6 +544,7 @@ export function buildRadar(snapshot: Snapshot, model: ModelConstants = MODEL): {
     early_size: early,
     live_size: live.length,
     global_multiple: round4(multiples.global),
+    median_change_7d: round4(medianChange7d(snapshot)),
     multiples: multiples.table,
     watchlist: snapshot.watchlist,
     rows: board.map(radarRow),

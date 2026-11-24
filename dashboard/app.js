@@ -51,7 +51,7 @@
   // The model, re-implemented for the sandbox: the same formula as lib/model.ts.
   function recompute(r) {
     var m = R.model;
-    var growth = r.change_7d == null ? 0 : Math.min(m.growth_cap, Math.max(m.growth_floor, r.change_7d));
+    var growth = r.change_7d == null ? R.median_change_7d : Math.min(m.growth_cap, Math.max(m.growth_floor, r.change_7d));
     var gMult = 1 + (growth / 100) * sandbox.growth;
     var age = r.age_days == null ? m.unknown_age_days : r.age_days;
     var mat = m.maturity_floor + (Math.min(Math.max(age, 0), m.maturity_days) / m.maturity_days) * sandbox.maturity;
@@ -109,7 +109,7 @@
     if (!r) { el.hidden = true; el.innerHTML = ''; return; }
     var m = R.model;
     var base = r.tvl_usd * r.category_multiple;
-    var growthPct = r.change_7d == null ? 0 : Math.min(m.growth_cap, Math.max(m.growth_floor, r.change_7d));
+    var growthPct = r.change_7d == null ? R.median_change_7d : Math.min(m.growth_cap, Math.max(m.growth_floor, r.change_7d));
     var steps = r.farm_steps.map(function (s) {
       var cut = s.lastIndexOf(' Cost: ');
       var text = cut > 0 ? s.slice(0, cut) : s;
@@ -156,7 +156,7 @@
 
   // Multiples table.
   $('multiples').querySelector('tbody').innerHTML = R.multiples.slice().sort(function (a, b) { return b.multiple - a.multiple; }).map(function (t) {
-    var fb = t.n < R.model.min_category_n;
+    var fb = t.n === 0;
     return '<tr><td>' + esc(t.category) + (fb ? ' <span class="slug">(fallback)</span>' : '') + '</td>' +
       '<td class="num">' + t.n + '</td><td class="num">' + t.multiple.toFixed(3) + '×</td></tr>';
   }).join('');
