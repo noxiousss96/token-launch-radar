@@ -27,6 +27,10 @@
 </nav>
 <main class="wrap">
   <section id="view-board" class="view active" aria-label="Ranked board">
+    <div class="kpi" id="kpi" aria-label="Out-of-sample checks"></div>
+    <p class="integrity" id="integrity" aria-label="Self-check"></p>
+    <div class="ledger" id="ledger" aria-label="Protocol accounting"></div>
+    <p class="callout" id="callout" hidden></p>
     <div class="controls" role="search">
       <label class="field grow">Search
         <input id="q" type="search" placeholder="Protocol, chain or category…" autocomplete="off">
@@ -36,6 +40,14 @@
       </label>
       <label class="field">Chain
         <select id="f-chain"><option value="">All chains</option></select>
+      </label>
+      <label class="field">Verdict
+        <select id="f-verdict">
+          <option value="">All verdicts</option>
+          <option value="FARM">Farm</option>
+          <option value="MARGINAL">Marginal</option>
+          <option value="SKIP">Skip</option>
+        </select>
       </label>
       <label class="field">Min TVL
         <select id="f-tvl">
@@ -62,14 +74,15 @@
       <table id="board">
         <thead>
           <tr>
-            <th class="num">#</th><th>Protocol</th><th>Category</th><th>Chains</th>
+            <th class="num">#</th><th>Protocol</th>
             <th class="num">TVL</th><th class="num">7d</th><th class="num">Age</th><th class="num">Implied value</th>
+            <th class="num">Expected value</th><th>Verdict</th><th class="num">Net / hour</th>
           </tr>
         </thead>
         <tbody></tbody>
       </table>
     </div>
-    <p class="note">Implied value is this radar's own claim from the snapshot's figures — never a promise a token launches, or when. “Records no token” means the snapshot's record carries none; a protocol may still have one its record does not carry.</p>
+    <p class="note">Implied value is this radar's own claim from the snapshot's figures — never a promise a token launches, or when. “Records no token” means the snapshot's record carries none; a protocol may still have one its record does not carry. Expected value is implied value × launch odds. The farm verdict is the farmer's own net: the expected drop (7% of the value, at a deposit of 0.02% of TVL) minus the plan's gas.</p>
   </section>
   <section id="view-live" class="view" aria-label="Live tokens">
     <p class="intro">Protocols whose token already trades. The market's own values — and the source of every category multiple the model uses. A high multiple here is what lifts a pre-token peer in the same category.</p>
@@ -87,12 +100,34 @@
       <div>
         <h2>How the value is worked out</h2>
         <p>Every implied value comes from the snapshot's own figures — TVL, seven-day growth, and how long the protocol has run with no token — never from a hand-kept list of names. The same function scores every row.</p>
-        <p class="formula">implied = TVL × category multiple × growth × maturity</p>
+        <p class="formula">implied = TVL × fitted multiple × growth × maturity</p>
         <ul class="model-points">
-          <li><strong>Category multiple.</strong> For each category, the median market-cap-to-TVL ratio of that category's protocols whose token already trades, computed from this snapshot — blended with the global median by shrinkage, weighted by how many trading comparables the category has: (n × category median + 3 × global) / (n + 3). A category with one comparable leans mostly on the global median; one with many stands on its own. Only a category with no trading comparables at all falls back to the global median. Multiples are clamped to 0.02–2.00.</li>
+          <li><strong>Fitted multiple.</strong> A log-log regression of market cap on TVL across the snapshot's trading protocols (log mcap = intercept + slope × log TVL), fitted on the 104 trading protocols whose mcap/TVL sits between 0.02× and 5×, with a per-category effect from the median residual of that category's trading protocols. A category's effect is shrunk toward the global curve by its comparable count (shrinkage k = 9; a category with fewer than 3 comparables keeps only 10% of its effect, so a single comparable can no longer set a category's multiple). Each multiple is clamped to 0.02–2.00.</li>
           <li><strong>Growth.</strong> The seven-day TVL change, clamped to −60%…+120%, weighted at 0.5: a protocol growing 40% in a week scores 1.20×. A protocol that reports no seven-day change scores the snapshot's median change instead of zero.</li>
-          <li><strong>Maturity.</strong> 0.60 for a brand-new protocol, rising to 1.00 after two years running with no token. A protocol with no listing date is scored as one year old.</li>
+          <li><strong>Maturity.</strong> 0.80 for a brand-new protocol, rising to 1.00 after two years running with no token. A protocol with no listing date is scored as one year old.</li>
+          <li><strong>Launch odds.</strong> The category's launch base rate — the share of the snapshot's protocols in that category that already trade — adjusted for age (older with no token, slightly less likely) and seven-day growth (growing, slightly more likely), clamped to 0.02–0.95. Expected value is implied value × odds; the ranking stays by implied value.</li>
+          <li><strong>Uncertainty.</strong> Every row carries a p10–p90 implied-value range from the dispersion of the fit's log residuals (its own category's, when it has at least 5 fit protocols, else the global dispersion), and the rank range that range implies.</li>
+          <li><strong>Farm verdict.</strong> The farmer's own net, not the protocol's value: the deposit is 0.02% of TVL (at least $100), the airdrop is assumed to be 7% of the token's value, and the farmer's share of it is deposit / TVL. Expected drop = implied × odds × 7% × (deposit / TVL); net = drop − the plan's gas; FARM when net is at least $25, MARGINAL when it is positive but below $25, SKIP when it is negative.</li>
         </ul>
+        <h2>Out-of-sample evidence</h2>
+        <p>Every term was added in turn and tested on rows it never saw, two ways: leave-one-out over the fit population, and walk-forward (fit on the oldest 60/70/80% of dated listings, test on the newer rest; the number shown is the median of the three splits' median errors). “× miss” is the median of max(predicted / actual, actual / predicted). The size curve is the big win; the other terms move the error by less than the split-to-split noise, and are kept because the task asks for them — the value follows from TVL, seven-day growth and how long it has run.</p>
+        <div class="table-wrap small">
+          <table id="evidence-value">
+            <thead><tr><th>Value term, added in order</th><th class="num">Leave-one-out</th><th class="num">Walk-forward</th><th>Result</th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+        <p>The odds are scored by Brier score (lower is better) on all 758 protocols — leave-one-out, and walk-forward with the base rates taken from the training period only.</p>
+        <div class="table-wrap small">
+          <table id="evidence-odds">
+            <thead><tr><th>Odds term, added in order</th><th class="num">Brier, leave-one-out</th><th class="num">Brier, walk-forward</th><th>Result</th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+        <p id="bootstrap-note"></p>
+        <h3>Market cap on TVL</h3>
+        <p>Every traded protocol in the snapshot, against the fitted curve. The band is the printed p10–p90 range around the curve.</p>
+        <div class="scatter" id="scatter"></div>
         <h3>Try it: the sandbox</h3>
         <p>Move the sliders and the board re-ranks live, in this page, with the same formula. Nothing is saved — it is a way to see what the model is sensitive to.</p>
         <div class="sandbox" id="sandbox"></div>
@@ -100,10 +135,10 @@
       </div>
       <div>
         <h2>Category multiples</h2>
-        <p>Derived from the snapshot's trading protocols. “n” is how many trading protocols the median rests on; each multiple blends its category's median with the global median by shrinkage, so a small n leans on the global figure. A fallback multiple — a category with no trading protocols at all — is the global median.</p>
+        <p>Derived from the snapshot's trading protocols: the fitted multiple at the category's median fit-population TVL (its pre-token median when it has no fit protocols). “n” is how many trading protocols the category effect rests on; a category with fewer than 3 keeps only 10% of its effect, so a single comparable cannot set the multiple. A fallback multiple — a category with no trading protocols at all — is the fitted curve with no category effect.</p>
         <div class="table-wrap small">
           <table id="multiples">
-            <thead><tr><th>Category</th><th class="num">n</th><th class="num">Multiple</th></tr></thead>
+            <thead><tr><th>Category</th><th class="num">n</th><th class="num">Multiple</th><th class="num">at TVL</th></tr></thead>
             <tbody></tbody>
           </table>
         </div>
